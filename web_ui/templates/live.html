@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MotionFlow Live Preview</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { box-sizing: border-box; }
+        
+        body {
+            background-color: #1a1a1a;
+            color: #fff;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+        }
+        
+        .navbar {
+            padding: 0.5rem 1rem;
+            flex-shrink: 0;
+        }
+        
+        #main-container {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 56px);
+            overflow: hidden;
+        }
+        
+        #video-section {
+            flex: 1 1 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #000;
+            min-height: 0;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        /* Container keeps both canvases perfectly aligned */
+        #canvas-container {
+            position: relative;
+            display: inline-block;
+            max-width: 100%;
+            max-height: 100%;
+        }
+        
+        #frame-canvas {
+            display: block;
+            /* CSS sets display size, JS sets internal buffer size */
+        }
+        
+        /* Overlay sits exactly on top of frame canvas */
+        #overlay-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+        
+        #status-bar {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-family: monospace;
+            z-index: 10;
+        }
+        
+        #status-bar .connected { color: #4caf50; }
+        #status-bar .disconnected { color: #f44336; }
+        
+        /* Info panels container - fixed height below video */
+        #panels-container {
+            display: flex;
+            flex-direction: row;
+            background: #111;
+            border-top: 1px solid #333;
+            height: 33vh;  /* 1/3 of viewport height */
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+        
+        .info-panel {
+            flex: 1;
+            padding: 10px 15px;
+            overflow-y: auto;
+            border-right: 1px solid #333;
+        }
+        
+        .info-panel:last-child {
+            border-right: none;
+        }
+        
+        .info-panel h6 {
+            margin: 0 0 8px 0;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #444;
+            font-size: 0.9rem;
+            position: sticky;
+            top: 0;
+            background: #111;
+        }
+        
+        .detection-item {
+            padding: 6px 0;
+            border-bottom: 1px solid #222;
+            font-size: 0.9rem;
+        }
+        
+        .detection-item:last-child {
+            border-bottom: none;
+        }
+        
+        .action-badge {
+            font-size: 0.8rem;
+            padding: 2px 8px;
+            margin-left: 6px;
+        }
+        
+        .zone-label {
+            font-size: 0.75rem;
+            color: #888;
+            margin-top: 2px;
+            display: block;
+        }
+        
+        /* Events panel */
+        .event-item {
+            padding: 4px 0;
+            font-size: 0.8rem;
+            border-bottom: 1px solid #222;
+        }
+        
+        .event-item:last-child {
+            border-bottom: none;
+        }
+        
+        .event-time {
+            color: #666;
+            font-family: monospace;
+            font-size: 0.7rem;
+            margin-right: 6px;
+        }
+        
+        .event-icon {
+            margin-right: 4px;
+        }
+        
+        .event-enter { color: #4CAF50; }
+        .event-exit { color: #f44336; }
+        .event-door { color: #FF9800; }
+        .event-action { color: #2196F3; }
+        
+        .no-stream {
+            text-align: center;
+            padding: 50px;
+        }
+        
+        .no-stream i {
+            font-size: 3rem;
+            color: #444;
+            margin-bottom: 15px;
+        }
+        
+        /* Responsive: Portrait mobile - video on top, feeds fill remaining space */
+        @media (max-width: 600px), (orientation: portrait) {
+            #main-container {
+                flex-direction: column;
+            }
+            
+            #video-section {
+                flex: 0 0 auto;  /* Don't grow, size to content */
+                width: 100%;
+                max-height: 50vh;  /* Cap at half screen so feeds have room */
+            }
+            
+            #panels-container {
+                flex: 1;  /* Take remaining space */
+                flex-direction: column;
+                height: auto;
+                min-height: 0;
+            }
+            
+            .info-panel {
+                flex: 1;
+                border-right: none;
+                border-bottom: 1px solid #333;
+                min-height: 0;
+            }
+            
+            .info-panel:last-child {
+                border-bottom: none;
+            }
+        }
+        
+        /* Landscape mobile - smaller panels */
+        @media (max-height: 500px) and (orientation: landscape) {
+            #panels-container {
+                height: 25vh;
+            }
+            
+            .info-panel h6 {
+                font-size: 0.8rem;
+                padding-bottom: 4px;
+                margin-bottom: 4px;
+            }
+            
+            .detection-item, .event-item {
+                padding: 3px 0;
+                font-size: 0.75rem;
+            }
+            
+            .action-badge {
+                font-size: 0.7rem;
+                padding: 1px 5px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">
+                <i class="fas fa-eye"></i> Live Preview
+            </span>
+            <div class="d-flex align-items-center">
+                <select id="camera-select" class="form-select form-select-sm me-2" style="width: auto; min-width: 150px;">
+                    <option value="">Select camera...</option>
+                </select>
+                <a href="/" class="btn btn-outline-light btn-sm">
+                    <i class="fas fa-cog"></i>
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div id="main-container">
+        <div id="video-section">
+            <!-- No stream selected message -->
+            <div id="no-stream-msg" class="no-stream">
+                <i class="fas fa-video-slash"></i>
+                <h5>No Camera Selected</h5>
+                <p class="text-muted small">Select a camera from the dropdown</p>
+            </div>
+            
+            <!-- Engine not connected message -->
+            <div id="engine-error-msg" class="no-stream" style="display: none;">
+                <i class="fas fa-exclamation-triangle text-warning"></i>
+                <h5>Engine Not Connected</h5>
+                <p class="text-muted small">Make sure the engine is running</p>
+                <button class="btn btn-outline-primary btn-sm mt-2" onclick="checkEngineStatus()">
+                    <i class="fas fa-sync-alt"></i> Retry
+                </button>
+            </div>
+            
+            <!-- Canvas container - keeps frame and overlay perfectly aligned -->
+            <div id="canvas-container" style="display: none;">
+                <canvas id="frame-canvas"></canvas>
+                <canvas id="overlay-canvas"></canvas>
+            </div>
+            
+            <!-- Status bar -->
+            <div id="status-bar">
+                <span id="connection-status" class="disconnected">
+                    <i class="fas fa-circle"></i> Disconnected
+                </span>
+                <span class="ms-2">FPS: <span id="fps-display">--</span></span>
+                <span class="ms-2">Buf: <span id="buffer-display">0</span></span>
+            </div>
+        </div>
+        
+        <!-- Info panels - below video -->
+        <div id="panels-container" style="display: none;">
+            <div class="info-panel" id="detections-panel">
+                <h6><i class="fas fa-users"></i> Detections</h6>
+                <div id="detections-list">
+                    <span class="text-muted small">No detections</span>
+                </div>
+            </div>
+            <div class="info-panel" id="events-panel">
+                <h6><i class="fas fa-bell"></i> Events</h6>
+                <div id="events-list">
+                    <span class="text-muted small">No events yet</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/renderer.js"></script>
+    <script>
+        // Initialize canvases
+        const frameCanvas = document.getElementById('frame-canvas');
+        const overlayCanvas = document.getElementById('overlay-canvas');
+        const canvasContainer = document.getElementById('canvas-container');
+        const frameCtx = frameCanvas.getContext('2d');
+        const renderer = new OverlayRenderer(overlayCanvas, null);
+        
+        // Camera selection
+        const cameraSelect = document.getElementById('camera-select');
+        const noStreamMsg = document.getElementById('no-stream-msg');
+        const panelsContainer = document.getElementById('panels-container');
+        const connectionStatus = document.getElementById('connection-status');
+        const fpsDisplay = document.getElementById('fps-display');
+        const bufferDisplay = document.getElementById('buffer-display');
+        const detectionsList = document.getElementById('detections-list');
+        const eventsList = document.getElementById('events-list');
+        const engineErrorMsg = document.getElementById('engine-error-msg');
+        
+        // Events buffer (keep last N events)
+        const MAX_EVENTS = 20;
+        const recentEvents = [];
+        
+        let currentCamera = null;
+        let ws = null;
+        let lastFpsTime = Date.now();
+        let fpsCounter = 0;
+        
+        // Load available cameras from config
+        fetch('/api/config')
+            .then(res => res.json())
+            .then(config => {
+                if (config.streams) {
+                    config.streams.forEach(stream => {
+                        if (stream.enabled) {
+                            const option = document.createElement('option');
+                            option.value = stream.name;
+                            option.textContent = stream.name;
+                            cameraSelect.appendChild(option);
+                        }
+                    });
+                    
+                    // Restore camera from localStorage
+                    const savedCamera = localStorage.getItem('motionflow_selected_camera');
+                    if (savedCamera && cameraSelect.querySelector(`option[value="${savedCamera}"]`)) {
+                        cameraSelect.value = savedCamera;
+                        cameraSelect.dispatchEvent(new Event('change'));
+                    }
+                }
+            });
+        
+        // Camera selection change
+        cameraSelect.addEventListener('change', function() {
+            const camId = this.value;
+            
+            // Save to localStorage for persistence
+            if (camId) {
+                localStorage.setItem('motionflow_selected_camera', camId);
+            }
+            
+            // Stop playback and disconnect from previous camera
+            stopPlayback();
+            
+            // Close old socket with a flag to prevent its onclose from interfering
+            if (ws) {
+                ws._intentionalClose = true;  // Flag to ignore onclose events
+                ws.close();
+                ws = null;
+            }
+            
+            // Update current camera BEFORE any async operations
+            currentCamera = camId;
+            
+            if (!camId) {
+                // No camera selected
+                canvasContainer.style.display = 'none';
+                noStreamMsg.style.display = 'block';
+                panelsContainer.style.display = 'none';
+                connectionStatus.className = 'disconnected';
+                connectionStatus.innerHTML = '<i class="fas fa-circle"></i> Disconnected';
+                return;
+            }
+            
+            // Clear frame canvas when switching cameras
+            frameCtx.clearRect(0, 0, frameCanvas.width, frameCanvas.height);
+            // Clear overlay via renderer
+            renderer.clear();
+            
+            // Show canvases
+            noStreamMsg.style.display = 'none';
+            engineErrorMsg.style.display = 'none';
+            canvasContainer.style.display = 'block';
+            panelsContainer.style.display = 'flex';
+            
+            // Clear events when switching cameras
+            recentEvents.length = 0;
+            eventsList.innerHTML = '<span class="text-muted small">No events yet</span>';
+            
+            // Show connecting status
+            connectionStatus.className = 'disconnected';
+            connectionStatus.innerHTML = '<i class="fas fa-circle"></i> Connecting...';
+            
+            // Connect WebSocket for synced frame + metadata
+            connectWebSocket(camId);
+        });
+        
+        function connectWebSocket(camId) {
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const newWs = new WebSocket(`${protocol}//${location.host}/live/ws/${camId}`);
+            
+            // Store reference
+            ws = newWs;
+            
+            newWs.onopen = function() {
+                // Only update UI if this is still the active socket
+                if (ws === newWs && currentCamera === camId) {
+                    connectionStatus.className = 'connected';
+                    connectionStatus.innerHTML = '<i class="fas fa-circle"></i> Connected';
+                }
+            };
+            
+            newWs.onclose = function() {
+                // Ignore if this was an intentional close (camera switch)
+                if (newWs._intentionalClose) return;
+                
+                // Only update UI if this is still the active socket
+                if (ws === newWs && currentCamera === camId) {
+                    connectionStatus.className = 'disconnected';
+                    connectionStatus.innerHTML = '<i class="fas fa-circle"></i> Disconnected';
+                    
+                    // Attempt reconnect after delay if still on same camera
+                    setTimeout(() => {
+                        if (currentCamera === camId && ws === newWs) {
+                            connectWebSocket(camId);
+                        }
+                    }, 2000);
+                }
+            };
+            
+            newWs.onerror = function(err) {
+                console.error('WebSocket error:', err);
+                if (ws === newWs && currentCamera === camId) {
+                    engineErrorMsg.style.display = 'block';
+                    canvasContainer.style.display = 'none';
+                }
+            };
+            
+            newWs.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                
+                // Skip heartbeats
+                if (data.heartbeat) return;
+                
+                // Skip if error
+                if (data.error) {
+                    console.error('Server error:', data.error);
+                    return;
+                }
+                
+                // Update receive FPS counter
+                fpsCounter++;
+                const now = Date.now();
+                if (now - lastFpsTime >= 1000) {
+                    fpsDisplay.textContent = `${fpsCounter} / ${playbackFps}`;
+                    fpsCounter = 0;
+                    lastFpsTime = now;
+                }
+                
+                // Queue frame for buffered playback
+                if (data.frame) {
+                    queueFrameForRender(data);
+                }
+                
+                // Update detections list
+                updateDetectionsList(data.detections || []);
+                
+                // Update events list
+                if (data.events && data.events.length > 0) {
+                    addEvents(data.events);
+                }
+            };
+        }
+        
+        // Jitter buffer for smooth playback
+        const BUFFER_TARGET = 10;  // Target buffer size (frames)
+        const BUFFER_MAX = 20;     // Max buffer before dropping oldest
+        const PLAYBACK_FPS = 20;   // Target playback rate
+        const frameBuffer = [];
+        let playbackInterval = null;
+        let playbackFps = 0;
+        let playbackFpsCounter = 0;
+        let lastPlaybackFpsTime = Date.now();
+        
+        function queueFrameForRender(data) {
+            // Add to buffer
+            frameBuffer.push(data);
+            
+            // Drop oldest frames if buffer too full
+            while (frameBuffer.length > BUFFER_MAX) {
+                frameBuffer.shift();
+            }
+            
+            // Update buffer display
+            bufferDisplay.textContent = frameBuffer.length;
+            
+            // Start playback loop if not running and buffer is filling
+            if (!playbackInterval && frameBuffer.length >= BUFFER_TARGET / 2) {
+                startPlayback();
+            }
+        }
+        
+        function startPlayback() {
+            if (playbackInterval) return;
+            
+            const intervalMs = 1000 / PLAYBACK_FPS;
+            playbackInterval = setInterval(() => {
+                // Update buffer display
+                bufferDisplay.textContent = frameBuffer.length;
+                
+                if (frameBuffer.length > 0) {
+                    const data = frameBuffer.shift();
+                    renderFrame(data);
+                    
+                    // Track playback FPS
+                    playbackFpsCounter++;
+                    const now = Date.now();
+                    if (now - lastPlaybackFpsTime >= 1000) {
+                        playbackFps = playbackFpsCounter;
+                        playbackFpsCounter = 0;
+                        lastPlaybackFpsTime = now;
+                    }
+                }
+            }, intervalMs);
+        }
+        
+        function stopPlayback() {
+            if (playbackInterval) {
+                clearInterval(playbackInterval);
+                playbackInterval = null;
+            }
+            frameBuffer.length = 0;
+            playbackFps = 0;
+        }
+        
+        async function renderFrame(data) {
+            try {
+                // Decode base64 to blob
+                const byteString = atob(data.frame);
+                const ab = new ArrayBuffer(byteString.length);
+                const ia = new Uint8Array(ab);
+                for (let i = 0; i < byteString.length; i++) {
+                    ia[i] = byteString.charCodeAt(i);
+                }
+                const blob = new Blob([ab], { type: 'image/jpeg' });
+                
+                // Use createImageBitmap for faster async decode
+                const bitmap = await createImageBitmap(blob);
+                
+                // Calculate display size to fit in container while preserving aspect ratio
+                const videoSection = document.getElementById('video-section');
+                const maxWidth = videoSection.clientWidth;
+                const maxHeight = videoSection.clientHeight;
+                
+                const imgAspect = bitmap.width / bitmap.height;
+                const containerAspect = maxWidth / maxHeight;
+                
+                let displayWidth, displayHeight;
+                if (imgAspect > containerAspect) {
+                    // Image is wider - fit to width
+                    displayWidth = maxWidth;
+                    displayHeight = maxWidth / imgAspect;
+                } else {
+                    // Image is taller - fit to height
+                    displayHeight = maxHeight;
+                    displayWidth = maxHeight * imgAspect;
+                }
+                
+                // Set frame canvas internal size to match image (for quality)
+                if (frameCanvas.width !== bitmap.width || frameCanvas.height !== bitmap.height) {
+                    frameCanvas.width = bitmap.width;
+                    frameCanvas.height = bitmap.height;
+                }
+                
+                // Set CSS display size
+                frameCanvas.style.width = displayWidth + 'px';
+                frameCanvas.style.height = displayHeight + 'px';
+                
+                // Draw frame
+                frameCtx.drawImage(bitmap, 0, 0);
+                bitmap.close();  // Free memory
+                
+                // Sync overlay canvas to frame canvas display size
+                if (overlayCanvas.width !== Math.round(displayWidth) || overlayCanvas.height !== Math.round(displayHeight)) {
+                    overlayCanvas.width = Math.round(displayWidth);
+                    overlayCanvas.height = Math.round(displayHeight);
+                    overlayCanvas.style.width = displayWidth + 'px';
+                    overlayCanvas.style.height = displayHeight + 'px';
+                    renderer.updateBounds();
+                }
+                
+                // Draw overlay (perfectly synced!)
+                renderer.render(data);
+                
+            } catch (err) {
+                console.error('Frame decode error:', err);
+            }
+        }
+        
+        function updateDetectionsList(detections) {
+            if (detections.length === 0) {
+                detectionsList.innerHTML = '<span class="text-muted small">No detections</span>';
+                return;
+            }
+            
+            detectionsList.innerHTML = detections.map(det => {
+                const actionBadge = det.action 
+                    ? `<span class="badge bg-info action-badge">${det.action}</span>`
+                    : '';
+                const zones = det.zones && det.zones.length > 0
+                    ? `<span class="zone-label"><i class="fas fa-map-marker-alt"></i> ${det.zones.join(', ')}</span>`
+                    : '';
+                
+                return `
+                    <div class="detection-item">
+                        <strong>#${det.id}</strong>${actionBadge}
+                        ${zones}
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function addEvents(events) {
+            // Add new events to the front
+            for (const evt of events) {
+                recentEvents.unshift(evt);
+            }
+            
+            // Trim to max size
+            while (recentEvents.length > MAX_EVENTS) {
+                recentEvents.pop();
+            }
+            
+            // Render events list
+            renderEventsList();
+        }
+        
+        function renderEventsList() {
+            if (recentEvents.length === 0) {
+                eventsList.innerHTML = '<span class="text-muted small">No events yet</span>';
+                return;
+            }
+            
+            eventsList.innerHTML = recentEvents.map(evt => {
+                const time = evt.timestamp ? formatTime(evt.timestamp) : '';
+                let icon = '';
+                let cssClass = '';
+                let text = '';
+                
+                if (evt.type === 'zone_enter') {
+                    icon = 'fa-sign-in-alt';
+                    cssClass = 'event-enter';
+                    text = `#${evt.track_id} entered ${evt.zone || 'zone'}`;
+                } else if (evt.type === 'zone_exit') {
+                    icon = 'fa-sign-out-alt';
+                    cssClass = 'event-exit';
+                    text = `#${evt.track_id} exited ${evt.zone || 'zone'}`;
+                } else if (evt.type === 'door_enter' || evt.type === 'door_exit') {
+                    icon = 'fa-door-open';
+                    cssClass = 'event-door';
+                    const dir = evt.direction || evt.type.replace('door_', '');
+                    text = `#${evt.track_id} ${dir} ${evt.door || evt.zone || 'door'}`;
+                } else if (evt.type === 'action_change') {
+                    icon = 'fa-running';
+                    cssClass = 'event-action';
+                    const action = evt.action || '?';
+                    const prev = evt.prev_action || '?';
+                    text = `#${evt.track_id} ${prev} → ${action}`;
+                } else if (evt.type === 'track_new') {
+                    icon = 'fa-user-plus';
+                    cssClass = 'event-enter';
+                    text = `#${evt.track_id} appeared`;
+                } else if (evt.type === 'track_lost') {
+                    icon = 'fa-user-minus';
+                    cssClass = 'event-exit';
+                    text = `#${evt.track_id} lost`;
+                } else {
+                    icon = 'fa-bell';
+                    cssClass = '';
+                    text = `${evt.type} #${evt.track_id}`;
+                }
+                
+                return `
+                    <div class="event-item ${cssClass}">
+                        <span class="event-time">${time}</span>
+                        <i class="fas ${icon} event-icon"></i>
+                        ${text}
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        // Keep overlay synced to frame canvas size on resize
+        const resizeObserver = new ResizeObserver(() => {
+            if (frameCanvas.offsetWidth > 0 && frameCanvas.offsetHeight > 0) {
+                const displayWidth = frameCanvas.offsetWidth;
+                const displayHeight = frameCanvas.offsetHeight;
+                if (overlayCanvas.width !== displayWidth || overlayCanvas.height !== displayHeight) {
+                    overlayCanvas.width = displayWidth;
+                    overlayCanvas.height = displayHeight;
+                    overlayCanvas.style.width = displayWidth + 'px';
+                    overlayCanvas.style.height = displayHeight + 'px';
+                    renderer.updateBounds();
+                }
+            }
+        });
+        resizeObserver.observe(frameCanvas);
+        
+        function formatTime(timestamp) {
+            // Timestamp could be ISO string or Unix seconds
+            const date = typeof timestamp === 'number' 
+                ? new Date(timestamp * 1000) 
+                : new Date(timestamp);
+            return date.toLocaleTimeString('en-US', { 
+                hour12: false, 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit' 
+            });
+        }
+        
+        // Check engine connection status
+        function checkEngineStatus() {
+            fetch('/live/status')
+                .then(res => res.json())
+                .then(status => {
+                    if (status.connected) {
+                        // Engine is connected, hide error message
+                        engineErrorMsg.style.display = 'none';
+                        // Enable camera selection
+                        cameraSelect.disabled = false;
+                    } else {
+                        // Engine not connected
+                        noStreamMsg.style.display = 'none';
+                        engineErrorMsg.style.display = 'block';
+                        cameraSelect.disabled = true;
+                        cameraSelect.value = '';
+                    }
+                })
+                .catch(err => {
+                    console.error('Status check failed:', err);
+                });
+        }
+        
+        // Check engine status on page load
+        checkEngineStatus();
+        
+        // Periodically check status (every 5 seconds) if not connected
+        setInterval(() => {
+            if (engineErrorMsg.style.display !== 'none' || !cameraSelect.value) {
+                checkEngineStatus();
+            }
+        }, 5000);
+    </script>
+</body>
+</html>

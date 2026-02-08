@@ -1,0 +1,75 @@
+axelera-model-format: 1.0.0
+
+name: yolo11lpose-coco-tracker
+
+description: yolo11l pose estimation with ByteTrack tracking
+
+pipeline:
+  - keypoint_detections:
+      model_name: yolo11lpose-coco-onnx
+      input:
+        type: image
+      preprocess:
+        - letterbox:
+            height: ${{input_height}}
+            scaleup: true
+            width: ${{input_width}}
+        - torch-totensor:
+      inference:
+        handle_all: false
+      postprocess:
+        - decodeyolopose:
+            box_format: xywh
+            conf_threshold: 0.25
+            max_nms_boxes: 30000
+            nms_iou_threshold: 0.45
+            nms_top_k: 300
+            normalized_coord: false
+  - tracking:
+      model_name: tracker
+      input:
+        source: full
+        color_format: RGB
+      cv_process:
+        - tracker:
+            algorithm: bytetrack
+            bbox_task_name: keypoint_detections
+            min_width: 10
+            min_height: 10
+            history_length: 1
+            algo_params:
+              frame_rate: 20
+              track_buffer: 30
+
+models:
+  yolo11lpose-coco-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/yolo11l-pose.onnx
+    weight_url: https://media.axelera.ai/artifacts/model_cards/weights/yolo/keypoint_detection/yolo11l-pose.onnx
+    weight_md5: a0c2124d8dfec01a427cc8b11bae0255
+    task_category: KeypointDetection
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 640, 640]
+    input_color_format: RGB
+    num_classes: 1
+    dataset: CocoDataset-keypoint-COCO2017
+    extra_kwargs:
+      compilation_config:
+        quantization_scheme: per_tensor_min_max
+        ignore_weight_buffers: false
+  tracker:
+    model_type: CLASSICAL_CV
+    task_category: ObjectTracking
+
+datasets:
+  CocoDataset-keypoint-COCO2017:
+    class: KptDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
+    data_dir_name: coco
+    label_type: COCO2017
+
+operators:
+  decodeyolopose:
+    class: DecodeYoloPose
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/yolopose.py

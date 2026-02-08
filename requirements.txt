@@ -1,0 +1,10 @@
+# Core dependencies (Axelera SDK is installed separately on target device)
+pydantic>=2.0
+pyyaml
+flask
+flask-sock
+opencv-python
+paho-mqtt
+OneEuroFilter
+numpy
+pynng

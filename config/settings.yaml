@@ -1,0 +1,53 @@
+general:
+  max_fps_per_stream: 20
+  pipeline: yolo11lpose-coco-tracker
+
+mqtt:
+  enabled: false
+  broker: localhost
+  port: 1883
+  base_topic: motionflow
+  username: null
+  password: null
+  qos: 0
+
+streams:
+  - name: example_stream
+    rtsp_url: rtsp://user:password@192.168.1.100:554/stream
+    enabled: false
+    mqtt_topic_suffix: /example
+    confidence_threshold: 0.5
+    filtered_actions:
+      - standing
+    zone_enter_confirm_frames: 5
+    zone_exit_confirm_frames: 5
+    zone_missing_grace_seconds: 1.0
+    track_new_confirm_frames: 5
+    zones:
+      - name: Example Zone
+        points:
+          - x: 0.1
+            y: 0.1
+          - x: 0.9
+            y: 0.1
+          - x: 0.9
+            y: 0.9
+          - x: 0.1
+            y: 0.9
+        triggers:
+          - person
+    doors:
+      - name: Example Door
+        points:
+          - x: 0.45
+            y: 0.2
+          - x: 0.55
+            y: 0.2
+          - x: 0.55
+            y: 0.8
+          - x: 0.45
+            y: 0.8
+        normal_angle: 0.0
+        direction_tolerance: 60.0
+        triggers:
+          - person
