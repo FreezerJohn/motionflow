@@ -289,8 +289,18 @@ class AxeleraMultiStreamProcessor:
             pipe_type='gst',
         )
         
+        # Disable OpenCL for GStreamer color conversion:
+        # On systems with Mali GPU + old Rockchip MPP plugin (gst-rockchip 1.14),
+        # OpenCL detection causes DMA-BUF backed buffers that segfault on CPU access
+        # (Image.asarray). Safe to disable — AIPU inference is unaffected.
+        system_config = self._ax_config.SystemConfig(
+            hardware_caps=self._ax_config.HardwareCaps(
+                opencl=self._ax_config.HardwareEnable.disable,
+            ),
+        )
+        
         self._stream = self._create_stream(
-            self._ax_config.SystemConfig(),
+            system_config,
             self._ax_config.InferenceStreamConfig(),
             pipeline_config,
         )
