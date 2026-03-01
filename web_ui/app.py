@@ -3,6 +3,7 @@ import gc
 import json
 import logging
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -486,6 +487,31 @@ def active_stream_count():
             "active_count": len(active_streams),
             "streams": list(active_streams.values())
         })
+
+
+@app.route('/api/engine/status')
+def engine_status():
+    """Check if the MotionFlow engine process is running.
+
+    Looks for a running ``python3 main.py`` process (excluding this web UI).
+    Returns JSON with ``running`` (bool) and an optional ``message``.
+    """
+    try:
+        result = subprocess.run(
+            ['pgrep', '-af', 'python.*main\\.py'],
+            capture_output=True, text=True, timeout=3
+        )
+        # Filter out the web UI process itself
+        lines = [
+            l for l in result.stdout.strip().splitlines()
+            if 'main.py' in l and 'web_ui' not in l
+        ]
+        if lines:
+            return jsonify({"running": True, "message": "Engine is running"})
+        else:
+            return jsonify({"running": False, "message": "Engine is not running. Start it with ./start_motionflow.sh"})
+    except Exception as e:
+        return jsonify({"running": False, "message": f"Could not check engine status: {e}"})
 
 
 @app.route('/api/reload', methods=['POST'])

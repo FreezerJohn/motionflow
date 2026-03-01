@@ -31,14 +31,29 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-uv.lock
+openvino_env/
 
 # VS Code
 .vscode/
 
+# Agents
+agents/
+
+# Project Specific
+test_footage/
+**dataset/
+YOLO_Dataset/
+*.mp4
+*.avi
+*.mkv
+voyager-sdk-reference/
+
 # Models
 *.pt
 *.onnx
+optimized_models/
+yolo11*-pose_openvino_model/
+yolo11*-pose_int8_openvino_model/
 
 # Logs
 *.log
@@ -46,6 +61,3 @@ uv.lock
 # OS
 .DS_Store
 Thumbs.db
-
-# Beads project management
-.beads/

@@ -518,6 +518,47 @@
                 height: 50vh;
             }
         }
+        
+        /* Engine status indicator */
+        #engine-status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+        #engine-status-dot.running { background-color: #28a745; }
+        #engine-status-dot.stopped { background-color: #dc3545; animation: pulse-red 1.5s infinite; }
+        
+        @keyframes pulse-red {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        
+        #engine-status-label {
+            font-size: 0.65rem;
+            color: #888;
+            margin-left: 4px;
+            vertical-align: middle;
+        }
+        
+        /* Engine not-running overlay in video section */
+        #engine-not-running-msg {
+            text-align: center;
+            color: #666;
+        }
+        #engine-not-running-msg i {
+            font-size: 2.5rem;
+            color: #c44;
+            margin-bottom: 12px;
+        }
+        #engine-not-running-msg code {
+            color: #ffc107;
+            background: #2a2a00;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
     </style>
 </head>
 <body>
@@ -525,6 +566,8 @@
         <div class="container-fluid">
             <span class="navbar-brand mb-0 h1">
                 <i class="fas fa-cog"></i> Config
+                <span id="engine-status-dot" class="stopped" title="Checking engine status..."></span>
+                <span id="engine-status-label">checking...</span>
             </span>
             <div class="d-flex align-items-center gap-2">
                 <button class="btn btn-success btn-sm" id="apply-btn" style="display: none;">
@@ -634,6 +677,16 @@
                     <p class="text-muted small">Select a stream from the list to configure zones and doors</p>
                 </div>
                 
+                <!-- Engine not running message (shown when engine process is down) -->
+                <div id="engine-not-running-msg" style="display: none;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <h5>Engine Not Running</h5>
+                    <p class="text-muted small">
+                        Start it with <code>./start_motionflow.sh</code>
+                        or run <code>./setup_motionflow.sh</code>
+                    </p>
+                </div>
+                
                 <!-- Video container (hidden until stream selected) -->
                 <div id="video-container" style="display: none;">
                     <img id="video-stream" src="" alt="Stream Preview" crossorigin="anonymous">
@@ -715,7 +768,7 @@
                     <div class="col-md-4">
                         <label class="form-label">Confidence Threshold</label>
                         <input type="number" class="form-control" id="stream-confidence" 
-                               min="0.1" max="1" step="0.05" value="0.3">
+                               min="0.1" max="1" step="0.05" value="0.6">
                     </div>
                 </div>
                 

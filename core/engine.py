@@ -9,8 +9,10 @@ Orchestrates multi-stream video processing using the Axelera Voyager SDK:
 """
 
 import logging
+import socket
 import threading
 import time
+from urllib.parse import urlparse
 
 import numpy as np
 
@@ -226,8 +228,60 @@ class AxeleraMultiStreamProcessor:
         """Set the SDK display window for visualization."""
         self._display_window = window
 
+    @staticmethod
+    def _check_rtsp_reachable(url: str, timeout: float = 8.0) -> bool:
+        """Verify an RTSP stream is accessible using ffprobe."""
+        import shutil
+        import subprocess
+
+        ffprobe = shutil.which("ffprobe")
+        if not ffprobe:
+            # Fallback to TCP socket check if ffprobe not available
+            try:
+                parsed = urlparse(url)
+                host = parsed.hostname
+                port = parsed.port or 554
+                with socket.create_connection((host, port), timeout=timeout):
+                    return True
+            except (OSError, ValueError):
+                return False
+
+        try:
+            result = subprocess.run(
+                [ffprobe, "-v", "quiet", "-print_format", "json",
+                 "-show_streams", url],
+                capture_output=True, timeout=timeout,
+            )
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, OSError):
+            return False
+
     def create_stream(self):
         """Create the SDK inference stream. Call before running."""
+        # Pre-check: verify every RTSP source is reachable before handing
+        # them to the SDK, which crashes hard on unreachable streams.
+        reachable_names = []
+        reachable_urls = []
+        for name, url in zip(self._stream_names, self._rtsp_urls):
+            if self._check_rtsp_reachable(url):
+                reachable_names.append(name)
+                reachable_urls.append(url)
+            else:
+                logger.warning(f"Stream '{name}' is unreachable ({url}) — skipping")
+
+        if not reachable_urls:
+            logger.warning("No RTSP streams are reachable — engine will idle.")
+            logger.info("Check that cameras are powered on and reachable,")
+            logger.info("or update the URLs in config/settings.yaml / Web UI.")
+            return None
+
+        if len(reachable_urls) < len(self._rtsp_urls):
+            logger.info(f"Continuing with {len(reachable_urls)}/{len(self._rtsp_urls)} reachable streams")
+
+        # Update to only use reachable streams
+        self._stream_names = reachable_names
+        self._rtsp_urls = reachable_urls
+
         pipeline_config = self._ax_config.PipelineConfig(
             network=self._network,
             sources=self._rtsp_urls,
@@ -616,7 +670,8 @@ class MotionFlowEngine:
         num_enabled = len(enabled_streams)
 
         if num_enabled == 0:
-            raise ValueError("No enabled streams in configuration")
+            logger.warning("No enabled streams in configuration — engine will idle.")
+            logger.info("Enable streams via the Web UI or in config/settings.yaml, then restart.")
 
         # Verify SDK is available
         try:
@@ -641,16 +696,19 @@ class MotionFlowEngine:
                 event_manager.add_listener(self.mqtt_publisher)
             self.event_managers.append(event_manager)
 
-        # Create multi-stream processor
-        self._multi_stream_processor = AxeleraMultiStreamProcessor(
-            stream_configs=enabled_streams,
-            model_name=pipeline,
-            visualization_enabled=self.visualize,
-            general_config=config,
-            event_managers=self.event_managers,
-            config_path=config_path,
-        )
-        logger.info(f"Initialized AxeleraMultiStreamProcessor for {num_enabled} streams")
+        # Create multi-stream processor (may be empty if no streams enabled)
+        if enabled_streams:
+            self._multi_stream_processor = AxeleraMultiStreamProcessor(
+                stream_configs=enabled_streams,
+                model_name=pipeline,
+                visualization_enabled=self.visualize,
+                general_config=config,
+                event_managers=self.event_managers,
+                config_path=config_path,
+            )
+            logger.info(f"Initialized AxeleraMultiStreamProcessor for {num_enabled} streams")
+        else:
+            logger.info("No streams to process — running in idle mode")
 
     def _setup_mqtt(self):
         """Set up MQTT publisher if enabled and available."""
@@ -696,7 +754,16 @@ class MotionFlowEngine:
         self.running = True
         logger.info("Starting MotionFlow Engine...")
 
-        self._run_with_sdk_threading(self.visualize)
+        if not self._multi_stream_processor:
+            # No streams configured — idle until interrupted
+            logger.info("Engine idle — no streams to process. Waiting for configuration...")
+            import signal
+            try:
+                signal.pause()
+            except KeyboardInterrupt:
+                pass
+        else:
+            self._run_with_sdk_threading(self.visualize)
         self.cleanup()
 
     def _run_with_sdk_threading(self, visualization_enabled: bool):
@@ -709,7 +776,54 @@ class MotionFlowEngine:
         from axelera.app import display
         
         try:
-            self._multi_stream_processor.create_stream()
+            # Create the inference stream — may fail if pipeline hasn't been built yet
+            try:
+                stream = self._multi_stream_processor.create_stream()
+                if stream is None:
+                    # No reachable streams — idle until interrupted
+                    logger.info("Engine idle — waiting for configuration. Press Ctrl+C to stop.")
+                    import signal
+                    try:
+                        signal.pause()
+                    except KeyboardInterrupt:
+                        pass
+                    return
+            except KeyError as e:
+                error_msg = str(e).strip('"\'')
+                network = self._multi_stream_processor._network
+                logger.error(f"Pipeline '{network}' not found in Voyager SDK.")
+                logger.error(f"SDK error: {error_msg}")
+                logger.error("")
+                logger.error("=" * 60)
+                logger.error("  FIRST-RUN SETUP REQUIRED")
+                logger.error("=" * 60)
+                logger.error(f"  The custom pipeline '{network}' needs to be built first.")
+                logger.error(f"  This compiles the model for the Metis AIPU (~1 hour).")
+                logger.error("")
+                logger.error("  Option 1 - Run the setup script:")
+                logger.error("    ./setup_motionflow.sh")
+                logger.error("")
+                logger.error("  Option 2 - Build manually:")
+                logger.error(f"    source ~/voyager-sdk/venv/bin/activate")
+                logger.error(f"    cd ~/voyager-sdk")
+                logger.error(f"    python3 deploy.py {network}")
+                logger.error("=" * 60)
+                return
+            except (AttributeError, TypeError) as e:
+                if "'NoneType'" in str(e):
+                    logger.error("")
+                    logger.error("=" * 60)
+                    logger.error("  STREAM CONNECTION FAILED")
+                    logger.error("=" * 60)
+                    logger.error("  GStreamer failed to connect to one or more RTSP streams.")
+                    logger.error("  Check that all cameras are reachable and the RTSP URLs")
+                    logger.error("  in config/settings.yaml are correct.")
+                    logger.error("")
+                    logger.error("  To disable a stream, set 'enabled: false' in the config")
+                    logger.error("  or remove it via the Web UI.")
+                    logger.error("=" * 60)
+                    return
+                raise
             
             renderer = True if visualization_enabled else False
             

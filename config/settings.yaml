@@ -1,3 +1,9 @@
+# MotionFlow Configuration
+# Edit this file directly or use the Web UI at http://<device-ip>:5000
+#
+# All zone/door coordinates are normalized (0.0 - 1.0).
+# Use the Web UI to draw zones and doors visually.
+
 general:
   max_fps_per_stream: 20
   pipeline: yolo11lpose-coco-tracker
@@ -16,7 +22,7 @@ streams:
     rtsp_url: rtsp://user:password@192.168.1.100:554/stream
     enabled: false
     mqtt_topic_suffix: /example
-    confidence_threshold: 0.5
+    confidence_threshold: 0.6
     filtered_actions:
       - standing
     zone_enter_confirm_frames: 5

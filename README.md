@@ -15,7 +15,7 @@ graph LR
     WebUI["🖥️ Web UI"] -.->|Configure<br/>& Monitor| Engine
 ```
 
-**Why?** Commercial smart home sensors tell you *someone is there*. MotionFlow tells you *who is doing what, where* — "person on the couch, sitting" vs "person at the front door, walking in" — using cameras you already have, processed entirely on-device with no cloud dependency.
+**Why?** Normal PIR sensors tell you *someone is there*. MotionFlow tells you *what is happening, where* — "person on the couch, sitting" vs "person at the front door, walking in" — using cameras you already have, processed entirely on-device with no cloud dependency.
 
 ---
 
@@ -36,11 +36,16 @@ graph LR
 
 **Hardware** – Orange Pi 5 Plus with an Axelera Metis M.2 AI accelerator, plus one or more RTSP-capable IP cameras.
 
-**OS** – Ubuntu 24.04 for the RK3588, using [Joshua Riek's ubuntu-rockchip](https://github.com/Joshua-Riek/ubuntu-rockchip/) images.
+**OS** – Ubuntu 24.04 for the RK3588
+
+> I used [Joshua Riek's ubuntu-rockchip](https://github.com/Joshua-Riek/ubuntu-rockchip/) image as it is more up-to-date, see [here](doc/README_joshua_orange_pi_setup.md) for setup instructions.  
+
+> If you prefer or Orange PIs original image, follow Axelera's [Bring-up Guide](https://support.axelera.ai/hc/en-us/articles/27059519168146-Bring-up-Voyager-SDK-in-Orange-Pi-5-Plus).  
+
+
 
 **Software:**
-- **Axelera Voyager SDK** – installed on the target (provides GStreamer pipeline, AIPU runtime, tracking)
-- **Python 3.10+** (included in the SDK venv)
+- **Axelera Voyager SDK** 1.5.x installed on the targets home
 - **MQTT broker** – e.g. Mosquitto, for Home Assistant / Node-RED integration
 - Python dependencies: see `requirements.txt`
 
@@ -48,27 +53,49 @@ graph LR
 
 ## 🚀 Quick Start
 
-### 1. Install dependencies
+### One-command setup (recommended)
+
+The interactive setup script handles everything - dependencies, pipeline build,
+systemd services, and first launch:
+
+```bash
+./setup_motionflow.sh
+```
+
+The script will:
+1. Install Python dependencies into the Voyager SDK venv
+2. Build the Axelera AIPU pipeline (~1 hour, first time only)
+3. Install & start **motionflow** + **motionflow-webui** systemd services
+
+After setup, the Web UI is available at `http://<device-ip>:5000`.
+
+> **Tip:** Run `./setup_motionflow.sh --check` to verify the installation, or
+> `./setup_motionflow.sh --uninstall` to remove services and stop processes.
+
+### Manual setup (alternative)
+
+<details>
+<summary>Click to expand manual steps</summary>
+
+#### 1. Install dependencies
 
 MotionFlow runs inside the **Axelera Voyager SDK venv** on the target device:
 
 ```bash
-# Activate the SDK venv
 source ~/voyager-sdk/venv/bin/activate
-
-# Install MotionFlow's dependencies into it
 pip install -r requirements.txt
 ```
 
-### 2. Configure
+#### 2. Build the pipeline (first time only)
 
-Edit `config/settings.yaml` directly, or use the Web UI at `http://<device-ip>:5000`:
-- Add RTSP stream URLs for your cameras
-- Draw **zones** (polygons) and **doors** (tripwires) on the live video
-- Set MQTT broker address and topic prefix
-- Hit **Save** – zones and settings hot-reload instantly
+The Axelera AIPU pipeline must be compiled once (~1 hour):
 
-### 3. Run
+```bash
+cd ~/voyager-sdk
+python3 deploy.py yolo11lpose-coco-tracker
+```
+
+#### 3. Run
 
 ```bash
 source ~/voyager-sdk/venv/bin/activate
@@ -80,17 +107,17 @@ python main.py --config config/settings.yaml
 python web_ui/app.py --config config/settings.yaml --port 5000
 ```
 
-Or use the provided **systemd services** for production:
+</details>
 
-```bash
-./systemd/install.sh
-sudo systemctl start motionflow motionflow-webui
+### Configure
 
-# View logs
-journalctl -u motionflow -u motionflow-webui -f
-```
+Edit `config/settings.yaml` directly, or use the Web UI at `http://<device-ip>:5000`:
+- Add RTSP stream URLs for your cameras
+- Draw **zones** (polygons) and **doors** (tripwires) on the live video
+- Set MQTT broker address and topic prefix
+- Hit **Apply** – zones and settings hot-reload instantly
 
-### 4. Integrate
+### Integrate
 
 Subscribe to MQTT topics in Home Assistant or Node-RED:
 

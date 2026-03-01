@@ -267,7 +267,7 @@ function addNewStream() {
         rtsp_url: '',
         enabled: true,
         mqtt_topic_suffix: '',
-        confidence_threshold: 0.3,
+        confidence_threshold: 0.6,
         zones: [],
         doors: []
     };
@@ -960,3 +960,49 @@ window.addEventListener('beforeunload', function(e) {
         e.returnValue = '';
     }
 });
+
+// ============================================================================
+// Engine Status Polling
+// ============================================================================
+
+let engineRunning = false;
+
+function checkEngineStatus() {
+    fetch('/api/engine/status')
+        .then(res => res.json())
+        .then(data => {
+            engineRunning = data.running;
+            const dot = document.getElementById('engine-status-dot');
+            const label = document.getElementById('engine-status-label');
+            const banner = document.getElementById('engine-not-running-msg');
+            const noStreamMsg = document.getElementById('no-stream-msg');
+
+            if (data.running) {
+                if (dot) { dot.className = 'running'; dot.title = 'Engine is running'; }
+                if (label) { label.textContent = 'running'; label.style.color = '#28a745'; }
+                if (banner) banner.style.display = 'none';
+                // Restore no-stream message visibility if no stream selected
+                if (noStreamMsg && selectedStreamIndex === null) {
+                    noStreamMsg.style.display = '';
+                }
+            } else {
+                if (dot) { dot.className = 'stopped'; dot.title = 'Engine is not running'; }
+                if (label) { label.textContent = 'not running'; label.style.color = '#dc3545'; }
+                // Show engine-not-running banner when no stream is selected (default view)
+                if (banner && selectedStreamIndex === null) {
+                    banner.style.display = '';
+                    if (noStreamMsg) noStreamMsg.style.display = 'none';
+                }
+            }
+        })
+        .catch(() => {
+            const dot = document.getElementById('engine-status-dot');
+            const label = document.getElementById('engine-status-label');
+            if (dot) { dot.className = 'stopped'; dot.title = 'Status unknown'; }
+            if (label) { label.textContent = 'unknown'; label.style.color = '#ffc107'; }
+        });
+}
+
+// Check immediately, then every 5 seconds
+checkEngineStatus();
+setInterval(checkEngineStatus, 5000);

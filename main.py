@@ -62,6 +62,10 @@ def main():
 
     except KeyboardInterrupt:
         logger.info("Shutting down...")
+    except KeyError as e:
+        # Pipeline not found in SDK - engine already logged detailed instructions
+        logger.error(f"Fatal error: {e}")
+        sys.exit(1)
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)
         sys.exit(1)
